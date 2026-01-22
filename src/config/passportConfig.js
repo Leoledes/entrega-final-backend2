@@ -4,10 +4,12 @@ import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt';
 import userModel from '../dao/models/userModel.js';
 import cartModel from '../dao/models/cartModel.js';
 import { createHash, isValidPassword } from '../utils/hashPassword.js';
-import __dirname from '../utils/constantsUtils.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const LocalStrategy = local.Strategy;
-const JWT_SECRET = 'coderSecretKey123';
+const JWT_SECRET = process.env.JWT_SECRET || 'coderSecretKey123';
 
 const initializePassport = () => {
 
@@ -17,14 +19,19 @@ const initializePassport = () => {
             const { first_name, last_name, age } = req.body;
             try {
                 const user = await userModel.findOne({ email: username });
-                if (user) return done(null, false, { message: 'User already exists' });
+                if (user) return done(null, false, { message: 'El usuario ya existe' });
 
                 const newCart = await cartModel.create({});
+                
                 const newUser = {
-                    first_name, last_name, email: username, age,
+                    first_name,
+                    last_name,
+                    email: username,
+                    age,
                     password: createHash(password),
                     cart: newCart._id
                 };
+
                 const result = await userModel.create(newUser);
                 return done(null, result);
             } catch (error) {
@@ -38,7 +45,10 @@ const initializePassport = () => {
         async (username, password, done) => {
             try {
                 const user = await userModel.findOne({ email: username });
-                if (!user || !isValidPassword(user, password)) return done(null, false);
+                if (!user) return done(null, false);
+                
+                if (!isValidPassword(password, user.password)) return done(null, false);
+                
                 return done(null, user);
             } catch (error) {
                 return done(error);
@@ -46,7 +56,7 @@ const initializePassport = () => {
         }
     ));
 
-    const cookieExtractor = req => req && req.cookies ? req.cookies['coderCookieToken'] : null;
+    const cookieExtractor = req => (req && req.cookies) ? req.cookies['coderCookieToken'] : null;
 
     passport.use('current', new JwtStrategy({
         jwtFromRequest: ExtractJwt.fromExtractors([cookieExtractor]),
@@ -56,7 +66,7 @@ const initializePassport = () => {
             const user = await userModel.findById(jwt_payload.id).populate('cart');
             return done(null, user);
         } catch (error) {
-            return done(error);
+            return done(error, false);
         }
     }));
 };
