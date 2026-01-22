@@ -75,4 +75,5 @@ const initializePassport = () => {
     }));
 };
 
+export { JWT_SECRET };
 export default initializePassport;
