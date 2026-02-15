@@ -1,51 +1,22 @@
 import { Router } from 'express';
-import { createHash, isValidPassword } from '../utils/hashPassword.js';
-import jwt from 'jsonwebtoken';
 import passport from '../config/passportConfig.js';
-import config from '../config/envConfig.js';
-import { createUserDTO } from '../dto/userDTO.js';
-import userRepository from '../repositories/userRepository.js';
+import authService from '../services/authService.js';
 
 const router = Router();
 
 router.post('/register', async (req, res) => {
     try {
-        const { first_name, last_name, email, age, password } = req.body;
-
-        if (!first_name || !last_name || !email || !age || !password) {
-            return res.status(400).json({ 
-                status: 'error', 
-                message: 'Todos los campos son requeridos' 
-            });
-        }
-
-        const emailInUse = await userRepository.emailExists(email);
-        if (emailInUse) {
-            return res.status(400).json({ 
-                status: 'error', 
-                message: 'El email ya está registrado' 
-            });
-        }
-
-        const newUser = await userRepository.create({
-            first_name,
-            last_name,
-            email,
-            age,
-            password: createHash(password),
-            role: 'user'
-        });
-
+        const user = await authService.register(req.body);
+        
         res.status(201).json({ 
             status: 'success', 
             message: 'Usuario registrado exitosamente',
-            user: createUserDTO(newUser)
+            user
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(400).json({ 
             status: 'error', 
-            message: 'Error al registrar usuario',
-            error: error.message 
+            message: error.message
         });
     }
 });
@@ -53,40 +24,9 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
+        const result = await authService.login(email, password);
 
-        if (!email || !password) {
-            return res.status(400).json({ 
-                status: 'error', 
-                message: 'Email y contraseña son requeridos' 
-            });
-        }
-
-        const user = await userRepository.getUserByEmail(email);
-        if (!user) {
-            return res.status(401).json({ 
-                status: 'error', 
-                message: 'Credenciales inválidas' 
-            });
-        }
-
-        if (!isValidPassword(password, user.password)) {
-            return res.status(401).json({ 
-                status: 'error', 
-                message: 'Credenciales inválidas' 
-            });
-        }
-
-        const token = jwt.sign(
-            { 
-                userId: user._id, 
-                email: user.email, 
-                role: user.role 
-            }, 
-            config.jwt.secret,
-            { expiresIn: config.jwt.expiration }
-        );
-
-        res.cookie('token', token, {
+        res.cookie('token', result.token, {
             httpOnly: true,
             maxAge: 24 * 60 * 60 * 1000
         });
@@ -94,14 +34,13 @@ router.post('/login', async (req, res) => {
         res.json({ 
             status: 'success', 
             message: 'Login exitoso',
-            user: createUserDTO(user),
-            token
+            user: result.user,
+            token: result.token
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(401).json({ 
             status: 'error', 
-            message: 'Error al iniciar sesión',
-            error: error.message 
+            message: error.message
         });
     }
 });
