@@ -1,95 +1,163 @@
 import { Router } from 'express';
-import { productDBManager } from '../dao/productDBManager.js';
-import { uploader } from '../utils/multerUtil.js';
+import productService from '../services/productService.js';
+import productRepository from '../repositories/productRepository.js';
+import { isAuthenticated } from '../middlewares/authMiddleware.js';
+import { authorize, canModifyResource } from '../middlewares/roleMiddleware.js';
+import { ROLES } from '../config/roles.js';
 
 const router = Router();
-const ProductService = new productDBManager();
 
 router.get('/', async (req, res) => {
-    const result = await ProductService.getAllProducts(req.query);
+    try {
+        const { page = 1, limit = 10, sort, category } = req.query;
+        
+        const query = category ? { category } : {};
+        const sortOptions = sort ? { price: sort === 'asc' ? 1 : -1 } : {};
+        
+        const result = await productService.getAllProducts(
+            parseInt(page),
+            parseInt(limit),
+            query,
+            sortOptions
+        );
 
-    res.send({
-        status: 'success',
-        payload: result
-    });
+        res.json({
+            status: 'success',
+            ...result
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
 });
 
 router.get('/:pid', async (req, res) => {
-
     try {
-        const result = await ProductService.getProductByID(req.params.pid);
-        res.send({
+        const product = await productService.getProductById(req.params.pid);
+
+        res.json({
             status: 'success',
-            payload: result
+            product
         });
     } catch (error) {
-        res.status(400).send({
+        res.status(404).json({
             status: 'error',
             message: error.message
         });
     }
 });
 
-router.post('/', uploader.array('thumbnails', 3), async (req, res) => {
+router.post('/', 
+    isAuthenticated,
+    authorize([ROLES.ADMIN, ROLES.PREMIUM]),
+    async (req, res) => {
+        try {
+            const product = await productService.createProduct(
+                req.body,
+                req.user._id,
+                req.user.role
+            );
 
-    if (req.files) {
-        req.body.thumbnails = [];
-        req.files.forEach((file) => {
-            req.body.thumbnails.push(file.path);
-        });
+            res.status(201).json({
+                status: 'success',
+                message: 'Producto creado exitosamente',
+                product
+            });
+        } catch (error) {
+            res.status(400).json({
+                status: 'error',
+                message: error.message
+            });
+        }
     }
+);
 
-    try {
-        const result = await ProductService.createProduct(req.body);
-        res.send({
-            status: 'success',
-            payload: result
-        });
-    } catch (error) {
-        res.status(400).send({
-            status: 'error',
-            message: error.message
-        });
+router.put('/:pid',
+    isAuthenticated,
+    authorize([ROLES.ADMIN, ROLES.PREMIUM]),
+    async (req, res) => {
+        try {
+            const product = await productRepository.getById(req.params.pid);
+            if (!product) {
+                return res.status(404).json({
+                    status: 'error',
+                    message: 'Producto no encontrado'
+                });
+            }
+
+            if (req.user.role === ROLES.PREMIUM) {
+                const userId = req.user._id.toString();
+                if (product.owner && product.owner.toString() !== userId && product.owner !== 'admin') {
+                    return res.status(403).json({
+                        status: 'error',
+                        message: 'No tienes permisos para actualizar este producto'
+                    });
+                }
+            }
+
+            const updatedProduct = await productService.updateProduct(
+                req.params.pid,
+                req.body,
+                req.user._id,
+                req.user.role
+            );
+
+            res.json({
+                status: 'success',
+                message: 'Producto actualizado exitosamente',
+                product: updatedProduct
+            });
+        } catch (error) {
+            res.status(400).json({
+                status: 'error',
+                message: error.message
+            });
+        }
     }
-});
+);
 
-router.put('/:pid', uploader.array('thumbnails', 3), async (req, res) => {
+router.delete('/:pid',
+    isAuthenticated,
+    authorize([ROLES.ADMIN, ROLES.PREMIUM]),
+    async (req, res) => {
+        try {
+            const product = await productRepository.getById(req.params.pid);
+            if (!product) {
+                return res.status(404).json({
+                    status: 'error',
+                    message: 'Producto no encontrado'
+                });
+            }
 
-    if (req.files) {
-        req.body.thumbnails = [];
-        req.files.forEach((file) => {
-            req.body.thumbnails.push(file.filename);
-        });
+            if (req.user.role === ROLES.PREMIUM) {
+                const userId = req.user._id.toString();
+                if (product.owner && product.owner.toString() !== userId) {
+                    return res.status(403).json({
+                        status: 'error',
+                        message: 'No tienes permisos para eliminar este producto. Solo puedes eliminar tus propios productos.'
+                    });
+                }
+            }
+
+            const result = await productService.deleteProduct(
+                req.params.pid,
+                req.user._id,
+                req.user.role
+            );
+
+            res.json({
+                status: 'success',
+                ...result
+            });
+        } catch (error) {
+            res.status(400).json({
+                status: 'error',
+                message: error.message
+            });
+        }
     }
-
-    try {
-        const result = await ProductService.updateProduct(req.params.pid, req.body);
-        res.send({
-            status: 'success',
-            payload: result
-        });
-    } catch (error) {
-        res.status(400).send({
-            status: 'error',
-            message: error.message
-        });
-    }
-});
-
-router.delete('/:pid', async (req, res) => {
-
-    try {
-        const result = await ProductService.deleteProduct(req.params.pid);
-        res.send({
-            status: 'success',
-            payload: result
-        });
-    } catch (error) {
-        res.status(400).send({
-            status: 'error',
-            message: error.message
-        });
-    }
-});
+);
 
 export default router;

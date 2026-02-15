@@ -2,6 +2,7 @@ import productRepository from '../repositories/productRepository.js';
 import { createProductDTO, createProductDTOArray } from '../dto/productDTO.js';
 
 class ProductService {
+
     async getAllProducts(page = 1, limit = 10, query = {}, sort = {}) {
         try {
             const result = await productRepository.getProductsPaginated(page, limit, query, sort);
@@ -29,7 +30,7 @@ class ProductService {
         }
     }
 
-    async createProduct(productData, userId = null) {
+    async createProduct(productData, userId = null, userRole = null) {
         try {
             const { title, description, price, code, stock, category, thumbnail } = productData;
 
@@ -50,6 +51,11 @@ class ProductService {
                 throw new Error('El stock no puede ser negativo');
             }
 
+            let owner = 'admin';
+            if (userRole === 'premium' && userId) {
+                owner = userId;
+            }
+
             const newProduct = await productRepository.create({
                 title,
                 description,
@@ -59,7 +65,7 @@ class ProductService {
                 category,
                 thumbnail: thumbnail || [],
                 status: true,
-                owner: userId || 'admin'
+                owner
             });
 
             return createProductDTO(newProduct);
